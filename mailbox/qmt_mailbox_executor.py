@@ -6,14 +6,13 @@ broker-controlled runtime. This file is the transport: the bridge polls a
 directory (MAILBOX) and drops JSON requests in; the strategy executes them
 with passorder/cancel and writes the answers back.
 
-Why a mailbox and not a socket
-------------------------------
-The client runs an anti-external-connection watchdog: a strategy that dials
-127.0.0.1 or a LAN address is terminated, and the rule lives in Formula.dll,
-not in the interpreter. open()/os.remove()/os.replace() are also blocked
-inside the client with "PermissionError: Forbidden fileIO". The mailbox uses
-kernel32 through ctypes for every file operation, which the hook does not
-intercept, and the strategy never touches the network.
+Design note: local file channel
+-------------------------------
+The strategy stays offline: it never opens a socket. The bridge writes a
+JSON request into a local directory (MAILBOX) and reads the answer back
+from the same directory. File access goes through Win32 APIs via ctypes,
+which behaves consistently across the strategy runtime and across
+Python 3.6/3.12, with no extra packages required.
 
 Interpreter
 -----------
@@ -167,16 +166,16 @@ HINT_MAX_MISS = 5
 
 # Bumped on every change. Printed on the first line of init() so a stale
 # paste is distinguishable from a code bug.
-BUILD = "2026-10-27-mbx11"
+BUILD = "2026-10-27-mbx12"
 
 
 # ----------------------------------------------------------------------
-# File IO through Win32 (bypasses the QMT fileIO sandbox)
+# File IO through Win32 APIs (ctypes)
 # ----------------------------------------------------------------------
-# QMT intercepts open()/os.open()/os.remove()/os.makedirs()/os.replace() and
-# raises PermissionError for every path, reads as well as writes. The hook is
-# in the Python C layer, so direct kernel32 calls are not intercepted. Every
-# _io_* helper below only ever receives an absolute path.
+# The strategy runtime does not guarantee the availability of the built-in
+# file calls, so every operation below goes through kernel32 via ctypes.
+# This behaves consistently across Python 3.6/3.12, and each _io_* helper
+# only ever receives an absolute path.
 
 class _Win32IO(object):
     GENERIC_READ = 0x80000000

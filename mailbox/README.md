@@ -22,7 +22,7 @@ host / port / api_key      ; 桥接 HTTP 监听与密钥
    （幂等，只动这一行）；
 3. 把盖戳后的 `qmt_mailbox_executor.py` 全文粘贴进 QMT 策略（运行周期
    **1 秒**，运行设置里绑定交易账户），重启后控制台确认：
-   `[qmt-exec] === init begin build=2026-10-27-mbx11 ===`
+   `[qmt-exec] === init begin build=2026-10-27-mbx12 ===`
    `paths resolved: ... mailbox=<base_dir> ...`
    `[qmt-exec] account id loaded from config.ini: <资金账号>`
 4. 桥接**无需任何环境变量**：启动即读 `config\config.ini`
