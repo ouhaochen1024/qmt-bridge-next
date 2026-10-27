@@ -130,8 +130,8 @@ else:
 # mbx10: 盖戳位 —— 统一配置文件绝对路径（config\config.ini，
 # 含 account_id/host/port/api_key/base_dir）。空串 = 未盖戳。
 
-BASE_DIR = "D:\\big-qmt-agent-skill\\qmt-bridge-next\\mailbox"
-CONFIG_INI = "D:\\big-qmt-agent-skill\\qmt-bridge-next\\config\\config.ini"
+BASE_DIR = ""      # 盖戳脚本写入；空串 = 未盖戳，回落到默认根解析
+CONFIG_INI = ""     # 盖戳脚本写入；空串 = 未盖戳
 # Filled by _resolve_paths() on init(); empty until then.
 ROOT = ""
 MAILBOX = ""
@@ -166,7 +166,7 @@ HINT_MAX_MISS = 5
 
 # Bumped on every change. Printed on the first line of init() so a stale
 # paste is distinguishable from a code bug.
-BUILD = "2026-10-27-mbx12"
+BUILD = "2026-10-27-mbx13"
 
 
 # ----------------------------------------------------------------------

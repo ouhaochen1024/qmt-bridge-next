@@ -63,7 +63,7 @@
 ## 真实大 QMT 环境验收（需人工执行）
 
 1. 粘贴执行器到 QMT 策略，绑定账户，运行周期 1 秒；
-2. 控制台出现 `[qmt-exec] === init begin build=2026-10-27-mbx12 ===`（以执行器 BUILD 常量为准）；
+2. 控制台出现 `[qmt-exec] === init begin build=2026-10-27-mbx13 ===`（以执行器 BUILD 常量为准）；
 3. 启动桥接后 /health 变 healthy；
 4. `query_stock_asset` 返回真实资产；
 5. `order_stock` 返回 submitted 后，最终收到 order_confirmed 或
