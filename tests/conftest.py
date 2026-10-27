@@ -51,3 +51,18 @@ def runner(mailbox):
     r = MockRunner(mailbox).start()
     yield r
     r.stop()
+
+
+@pytest.fixture()
+def bridge(mailbox, runner):
+    """已连接 mock 执行器的桥接应用（HTTP + WS 共用）。"""
+    from fastapi.testclient import TestClient
+
+    from qmt_bridge.app import create_app
+    from qmt_bridge.config import reset_settings, Settings
+
+    reset_settings(Settings(mailbox=str(mailbox)))
+    app = create_app()
+    with TestClient(app) as tc:
+        yield tc
+    reset_settings(None)

@@ -26,8 +26,8 @@ Setup
 3. Pick the trading account in the strategy deployment settings; if the
    account is not bound, orders are rejected (see _require_account).
 4. Start the strategy. Console shows [qmt-exec] === init begin build=... ===
-5. Start the bridge with QMT_BRIDGE_EXECUTOR=mailbox and
-   QMT_BRIDGE_INTERNAL_MAILBOX pointing at the same MAILBOX.
+5. Start the bridge with `python -m qmt_bridge`; it reads the same
+   config.ini (base_dir) — the only env override is QMT_BRIDGE_MAILBOX.
 6. Tighten the mailbox ACL once:
    icacls "<MAILBOX>" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"
    The mailbox is the only command channel; anyone who can write to it can
@@ -155,6 +155,8 @@ BAD_DIR_KEEP = 200
 PROCESSED_TTL = 300.0
 PROCESSED_MAX = 2000
 PROCESSED_KEEP = 1500
+PROCESSED_FILE = "processed.json"   # 幂等缓存落盘，跨执行器重启有效
+OUT_KEEP_SEC = 3600.0               # out/ 响应保留时长（供重投递复用）
 STALE_REQUEST_MS = 30000
 CONFIRM_TIMEOUT = 5.0
 
@@ -165,7 +167,7 @@ HINT_MAX_MISS = 5
 
 # Bumped on every change. Printed on the first line of init() so a stale
 # paste is distinguishable from a code bug.
-BUILD = "2026-10-27-mbx10"
+BUILD = "2026-10-27-mbx11"
 
 
 # ----------------------------------------------------------------------
@@ -502,7 +504,7 @@ def init(ContextInfo):
     _STATE.pop("startup_summary_logged", None)
     _STATE.pop("order_fields_logged", None)
     _PENDING_CONFIRM.clear()
-    _PROCESSED.clear()
+    _PROCESSED.clear()   # 先清内存，再由 _load_processed 从磁盘恢复
     _TRADE_ROWS_HINT.clear()
     _TRADE_ROWS_MISS.clear()
     _LOG_THROTTLE.clear()
@@ -513,6 +515,7 @@ def init(ContextInfo):
         ("log_env", _log_env),
         ("bind_account", lambda: _bind_account(ContextInfo)),
         ("ensure_dirs", _ensure_dirs),
+        ("load_processed", _load_processed),
         ("probe_mailbox", _probe_mailbox),
         ("check_mailbox_acl", _check_mailbox_acl),
         ("reset_mailbox", _reset_mailbox),
@@ -789,7 +792,13 @@ def _reset_mailbox():
             stale = []
         for item in stale:
             path = os.path.join(folder, item)
-            if name == "in" and (now - _io_mtime(path)) < RESET_KEEP_SEC:
+            age = now - _io_mtime(path)
+            # in/：保留桥接刚投递的请求（否则重启会吃掉在途单）；
+            # out/：保留未读响应，重投递时可直接回放——删掉它会让桥接
+            #      超时后用同 id 重投，存在重复下单风险。
+            if name == "in" and age < RESET_KEEP_SEC:
+                continue
+            if name == "out" and age < OUT_KEEP_SEC:
                 continue
             try:
                 _io_remove(path)
@@ -962,6 +971,56 @@ def _req_key(msg):
     return str(msg.get("id"))
 
 
+def _processed_path():
+    return os.path.join(_mailbox_dir(""), PROCESSED_FILE)
+
+
+def _load_processed():
+    """启动时恢复幂等缓存：重启后同一 id 的重投递直接回放旧响应。
+
+    没有这一步，执行器重启会把 _PROCESSED 清空，桥接按同 id 重投递时
+    会**再次**下单（README 承诺的"同 id 幂等"只在进程内成立）。
+    """
+    path = _processed_path()
+    try:
+        if not _io_isfile(path):
+            return
+        data = json.loads(_io_read(path) or "{}")
+    except Exception as exc:
+        _log("processed cache load failed: %s: %s"
+             % (type(exc).__name__, exc), "WARN")
+        return
+    now_wall = time.time()
+    restored = 0
+    for key, item in (data or {}).items():
+        try:
+            resp, wall = item[0], float(item[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        age = now_wall - wall
+        if age < -60 or age > PROCESSED_TTL:
+            continue
+        _PROCESSED[key] = (resp, time.monotonic() - age)
+        restored += 1
+    _log("processed cache loaded: %d entries (restored from disk)" % restored)
+
+
+def _save_processed():
+    """把幂等缓存原子落盘（失败不影响主流程）。"""
+    try:
+        now_wall = time.time()
+        mono = time.monotonic()
+        payload = {
+            key: [val[0], now_wall - (mono - val[1])]
+            for key, val in list(_PROCESSED.items())[-PROCESSED_KEEP:]
+        }
+        _write_atomic(_processed_path(),
+                      json.dumps(payload, ensure_ascii=False))
+    except Exception as exc:
+        _log("processed cache save failed: %s: %s"
+             % (type(exc).__name__, exc), "WARN")
+
+
 def _prune_processed():
     now = time.monotonic()
     stale = [k for k, v in _PROCESSED.items() if now - v[1] > PROCESSED_TTL]
@@ -1041,6 +1100,8 @@ def _dispatch(msg):
     # answer instead of executing the handler again.
     if req_id is not None and str(req_id).strip() != "":
         _PROCESSED[key] = (resp, time.monotonic())
+        if method in _ID_REQUIRED:      # 只持久化写操作，查询不入盘
+            _save_processed()
     _send_msg(resp)
 
 
@@ -1259,7 +1320,7 @@ def _bind_account(ctx):
     if source == "account.txt":
         _STATE["account_ok"] = True
         _STATE["account_id_detected"] = aid
-        _log("account id loaded from account.ini: %s" % aid)
+        _log("account id loaded from config.ini: %s" % aid)
     setter = getattr(ctx, "set_account", None)
     if not callable(setter):
         _log("ContextInfo.set_account missing; bind the account in run "

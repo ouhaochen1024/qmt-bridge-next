@@ -5,15 +5,15 @@ Skill 层无感切换。其余行情路由仍走 501 unsupported 存根
 （见 routers/unsupported.py 与 docs/limitations.md）。
 
 数据说明：非 QMT 本地源，可能有秒级延迟；休市时段返回最近收盘数据；
-五档盘口暂不提供（填 0）。
+腾讯主源提供五档盘口（买盘 9~18、卖盘 19~28），东财兜底时五档填 0。
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from .. import market_public as mp
-from .deps import ok_response
+from .deps import ok_response, require_api_key
 
 router = APIRouter(tags=["market-public"])
 
@@ -143,7 +143,8 @@ def batch_stock_name(stocks: str = Query(..., description="逗号分隔")):
 
 @router.get("/api/trading/order_detail")
 def order_detail(request: Request, order_id: str = Query(...),
-                 account_id: str = "", account_type: str = ""):
+                 account_id: str = "", account_type: str = "",
+                 _key: str = Depends(require_api_key)):
     """单笔委托详情（信箱 query_stock_order）。"""
     from .trading import _account_params, _mb_request
 

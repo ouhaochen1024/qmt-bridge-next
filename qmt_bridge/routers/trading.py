@@ -12,18 +12,23 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..mailbox_client import MailboxError, MailboxTimeoutError
-from .deps import ok_response, require_write_enabled
+from .deps import ok_response, require_api_key, require_write_enabled
 
 logger = logging.getLogger("qmt_bridge.trading")
+
+# 允许的委托方向（QMT 常量：23 买入 / 24 卖出）
+_ORDER_TYPES = (23, 24)
+_STOCK_CODE_RE = re.compile(r"^\d{6}\.(SH|SZ|BJ)$")
 
 router = APIRouter(
     prefix="/api/trading",
     tags=["trading"],
-    dependencies=[Depends(require_write_enabled)],
+    dependencies=[Depends(require_api_key)],
 )
 
 
@@ -71,7 +76,7 @@ def _account_params(account_id: str, account_type: str) -> dict:
 # 下单 / 撤单
 # ----------------------------------------------------------------------
 
-@router.post("/order")
+@router.post("/order", dependencies=[Depends(require_write_enabled)])
 def place_order(body: dict, request: Request):
     """单笔委托（两阶段）。
 
@@ -83,21 +88,37 @@ def place_order(body: dict, request: Request):
         不要重新下单。
     """
     try:
-        stock_code = str(body["stock_code"])
+        stock_code = str(body["stock_code"]).strip().upper()
         order_type = int(body["order_type"])
         order_volume = int(body["order_volume"])
+        price_type = int(body.get("price_type", 5))
+        price = float(body.get("price", 0.0))
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=422,
             detail="stock_code / order_type(23 buy|24 sell) / order_volume "
-                   "required",
+                   "required; price_type / price must be numeric",
         ) from exc
+    if not _STOCK_CODE_RE.match(stock_code):
+        raise HTTPException(
+            status_code=422,
+            detail="stock_code must look like 000001.SZ / 600519.SH",
+        )
+    if order_type not in _ORDER_TYPES:
+        raise HTTPException(
+            status_code=422, detail="order_type must be 23 (buy) or 24 (sell)"
+        )
+    if order_volume <= 0:
+        raise HTTPException(status_code=422, detail="order_volume must be > 0")
+    if price < 0:
+        raise HTTPException(status_code=422, detail="price must be >= 0")
+
     params = {
         "stock_code": stock_code,
         "order_type": order_type,
         "order_volume": order_volume,
-        "price_type": int(body.get("price_type", 5)),
-        "price": float(body.get("price", 0.0)),
+        "price_type": price_type,
+        "price": price,
         "order_remark": str(body.get("order_remark", "")),
     }
     params.update(_account_params(
@@ -108,13 +129,13 @@ def place_order(body: dict, request: Request):
     return ok_response(result)
 
 
-@router.post("/order_async")
+@router.post("/order_async", dependencies=[Depends(require_write_enabled)])
 def place_order_async(body: dict, request: Request):
     """与 /order 相同（信箱协议下无独立 async 通道；确认经 WS 推送）。"""
     return place_order(body, request)
 
 
-@router.post("/cancel")
+@router.post("/cancel", dependencies=[Depends(require_write_enabled)])
 def cancel_order(body: dict, request: Request):
     """撤销委托。order_id 可为 order_ref / order_sysid / order_id 任一。"""
     order_id = body.get("order_id")
@@ -127,12 +148,12 @@ def cancel_order(body: dict, request: Request):
     return ok_response(_mb_request(request, "cancel_order_stock", params))
 
 
-@router.post("/cancel_async")
+@router.post("/cancel_async", dependencies=[Depends(require_write_enabled)])
 def cancel_order_async(body: dict, request: Request):
     return cancel_order(body, request)
 
 
-@router.post("/cancel_by_sysid")
+@router.post("/cancel_by_sysid", dependencies=[Depends(require_write_enabled)])
 def cancel_by_sysid(body: dict, request: Request):
     sysid = body.get("sysid")
     if not sysid:
@@ -144,12 +165,12 @@ def cancel_by_sysid(body: dict, request: Request):
     return ok_response(_mb_request(request, "cancel_order_stock_sysid", params))
 
 
-@router.post("/cancel_by_sysid_async")
+@router.post("/cancel_by_sysid_async", dependencies=[Depends(require_write_enabled)])
 def cancel_by_sysid_async(body: dict, request: Request):
     return cancel_by_sysid(body, request)
 
 
-@router.post("/batch_order")
+@router.post("/batch_order", dependencies=[Depends(require_write_enabled)])
 def batch_order(body: dict, request: Request):
     """批量委托：{"orders": [ {…order 字段…}, … ]}，逐笔经信箱执行。"""
     orders = body.get("orders") or []
@@ -164,7 +185,7 @@ def batch_order(body: dict, request: Request):
     return ok_response(results)
 
 
-@router.post("/batch_cancel")
+@router.post("/batch_cancel", dependencies=[Depends(require_write_enabled)])
 def batch_cancel(body: dict, request: Request):
     cancels = body.get("order_ids") or []
     if not isinstance(cancels, list) or not cancels:

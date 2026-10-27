@@ -6,7 +6,7 @@
 ## 部署（mbx10 约定：config\config.ini 是唯一配置源）
 
 统一配置在 `<仓库根>\config\config.ini`（含 account_id / base_dir /
-host / port / api_key），**三端共用，不再使用 .env**：
+host / port / api_key），**三端共用的唯一配置源**：
 
 ```ini
 account_id = 66660000      ; 资金账号（执行器启动时 set_account）
@@ -22,7 +22,7 @@ host / port / api_key      ; 桥接 HTTP 监听与密钥
    （幂等，只动这一行）；
 3. 把盖戳后的 `qmt_mailbox_executor.py` 全文粘贴进 QMT 策略（运行周期
    **1 秒**，运行设置里绑定交易账户），重启后控制台确认：
-   `[qmt-exec] === init begin build=2026-10-27-mbx9 ===`
+   `[qmt-exec] === init begin build=2026-10-27-mbx11 ===`
    `paths resolved: ... mailbox=<base_dir> ...`
    `[qmt-exec] account id loaded from config.ini: <资金账号>`
 4. 桥接**无需任何环境变量**：启动即读 `config\config.ini`
@@ -34,7 +34,7 @@ host / port / api_key      ; 桥接 HTTP 监听与密钥
 icacls "<base_dir>" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"
 ```
 
-## 目录布局（mbx9：全部产物收敛在 base_dir 内）
+## 目录布局（全部产物收敛在 base_dir 内）
 
 ```
 <base_dir>/
@@ -48,7 +48,7 @@ icacls "<base_dir>" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"
 ```
 
 目录边界 = ACL 边界：收紧一条 icacls 即覆盖指令通道、配置与日志。
-兼容性：旧布局 account.ini / 信箱内 config.ini 仍可被读取，
+兼容性：旧布局 account.ini 仍可被读取，
 统一配置（CONFIG_INI 盖戳）优先。
 
 ## 已支持的信箱方法（执行器 _HANDLERS，勿改名）

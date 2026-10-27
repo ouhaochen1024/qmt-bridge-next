@@ -19,19 +19,6 @@ from tests.conftest import MockRunner  # noqa: E402
 
 
 @pytest.fixture()
-def bridge(mailbox, runner):
-    """已连接 mock 执行器的桥接应用。"""
-    from qmt_bridge.app import create_app
-    from qmt_bridge.config import reset_settings, Settings
-
-    reset_settings(Settings(mailbox=str(mailbox)))
-    app = create_app()
-    with TestClient(app) as tc:
-        yield tc
-    reset_settings(None)
-
-
-@pytest.fixture()
 def bridge_no_executor(mailbox):
     """执行器未启动（无 hello/agent.hb）。"""
     from qmt_bridge.app import create_app
@@ -150,7 +137,81 @@ def test_capabilities_endpoint(bridge):
     assert resp.status_code == 200
     caps = resp.json()["data"]
     assert "/ws/order" in caps["supported"]["ws"]
-    assert "/api/market" in caps["unsupported_groups"]
+    # 曾经错列过 /api/trades（该路径实测 404），必须是真实存在的路径
+    assert "/api/trades" not in caps["supported"]["account"]
+    assert "/api/trading/trades" in caps["supported"]["account"]
+    # /api/market 是"部分支持"，不能再整组标成 unsupported
+    assert "/api/market" not in caps["unsupported_groups"]
+    assert "/api/market" in caps["partial_groups"]
+    assert "/api/market/full_tick" in caps["partial_groups"]["/api/market"]["supported"]
+
+
+def test_capabilities_paths_are_registered(bridge):
+    """capabilities 里声称支持的路径必须真实注册（防止契约漂移）。"""
+    caps = bridge.get("/capabilities").json()["data"]
+    registered = {
+        getattr(r, "path", None) for r in bridge.app.routes
+    } - {None}
+    for spec in bridge.app.openapi()["paths"]:
+        registered.add(spec)
+    for group, paths in caps["supported"].items():
+        if group == "ws":
+            continue
+        for path in paths:
+            assert path in registered, "%s claims %s but route missing" % (group, path)
+
+
+def test_api_key_required_for_account_and_trading(mailbox, runner):
+    """配置 api_key 后，账户/交易接口无 key 或错 key 必须 401。"""
+    from qmt_bridge.app import create_app
+    from qmt_bridge.config import reset_settings, Settings
+
+    reset_settings(Settings(mailbox=str(mailbox), api_key="SECRET-KEY-123"))
+    app = create_app()
+    with TestClient(app) as tc:
+        assert tc.get("/api/trading/asset").status_code == 401
+        assert tc.get("/account/positions").status_code == 401
+        assert tc.get("/api/trading/asset",
+                      headers={"X-API-Key": "wrong"}).status_code == 401
+        ok = tc.get("/api/trading/asset",
+                    headers={"X-API-Key": "SECRET-KEY-123"})
+        assert ok.status_code == 200
+        # 健康检查保持公开（不泄露账号）
+        assert tc.get("/api/meta/health").status_code == 200
+    reset_settings(None)
+
+
+def test_order_param_errors_return_422(bridge):
+    """可预期的参数错误必须是 422，不能变成 500。"""
+    base = {"stock_code": "000001.SZ", "order_type": 23, "order_volume": 100}
+    cases = [
+        dict(base, price_type="abc"),     # 曾经 500
+        dict(base, price="abc"),          # 曾经 500
+        dict(base, order_type=99),
+        dict(base, order_type="buy"),
+        dict(base, stock_code=None),
+        dict(base, stock_code="600519"),
+        dict(base, order_volume=0),
+    ]
+    for body in cases:
+        resp = bridge.post("/api/trading/order", json=body)
+        assert resp.status_code == 422, (body, resp.status_code, resp.text)
+
+
+def test_read_endpoints_survive_writes_disabled(mailbox, runner):
+    """关闭写门禁时，只读接口不应被误伤为 403。"""
+    from qmt_bridge.app import create_app
+    from qmt_bridge.config import reset_settings, Settings
+
+    reset_settings(Settings(mailbox=str(mailbox), order_writes_enabled=False))
+    app = create_app()
+    with TestClient(app) as tc:
+        assert tc.get("/api/trading/asset").status_code == 200
+        assert tc.get("/account/positions").status_code == 200
+        assert tc.post("/api/trading/order", json={
+            "stock_code": "000001.SZ", "order_type": 23, "order_volume": 100,
+        }).status_code == 403
+    reset_settings(None)
 
 
 def loads_safe(text):

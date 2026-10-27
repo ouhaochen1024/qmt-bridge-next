@@ -1,17 +1,19 @@
-"""桥接端配置 ── 唯一配置源: config\config.ini。
+"""桥接端配置 ── 唯一配置源: config\\config.ini。
 
-桥接 / 大 QMT 执行器 / Agent Skills 三端都只读 config\config.ini，
-不再使用 .env。支持键（井号/分号后为注释，值可带引号）：
+桥接 / 大 QMT 执行器 / Agent Skills 三端都只读 config\\config.ini。
+支持键（井号/分号后为注释，值可带引号）：
 
     host / port            桥接 HTTP 监听
     api_key                API Key（交易写操作必需）
     account_id             资金账号（执行器启动时 set_account）
+    credit_account_id      信用两融账号（可选，Skills 端双账户复盘用）
+    default_account        默认户 stock / credit（默认 stock）
     base_dir               信箱目录（执行器 BASE_DIR 盖戳目标）
 
 查找顺序（全部绝对定位，与启动 cwd 无关）：
     1. $QMT_CONFIG 环境变量指定的 config.ini
-    2. <桥接仓库>\config\config.ini（由本文件位置锚定）
-    3. cwd\config\config.ini（兜底）
+    2. <桥接仓库>\\config\\config.ini（由本文件位置锚定）
+    3. cwd\\config\\config.ini（兜底）
 
 解析约定：config.ini 的键先映射为 os.environ 的 QMT_BRIDGE_* 变量
 （仅当外部环境未显式设置时，运维仍可用环境变量临时覆盖），再构造
@@ -37,6 +39,9 @@ _INI_TO_ENV = {
     "port": "QMT_BRIDGE_PORT",
     "api_key": "QMT_BRIDGE_API_KEY",
     "account_id": "QMT_BRIDGE_STOCK_ACCOUNT_ID",
+    "credit_account_id": "QMT_BRIDGE_CREDIT_ACCOUNT_ID",
+    "default_account": "QMT_BRIDGE_DEFAULT_ACCOUNT",
+    "log_level": "QMT_BRIDGE_LOG_LEVEL",
 }
 
 # 允许相对路径的键（相对 config.ini 所在目录解析）
@@ -101,7 +106,9 @@ def _apply_config_ini() -> dict[str, str]:
 
 @dataclass
 class Settings:
-    host: str = "0.0.0.0"
+    # 默认只监听本机：交易接口默认不暴露到局域网。需要局域网访问时
+    # 在 config.ini 显式写 host = 0.0.0.0，并务必配置 api_key。
+    host: str = "127.0.0.1"
     port: int = 8000
     log_level: str = "info"
     api_key: str = ""
@@ -113,8 +120,9 @@ class Settings:
     # 写门禁：False 时所有下单/撤单路由直接拒绝。
     order_writes_enabled: bool = True
 
-    # 执行器存活判定
-    hb_max_age_sec: float = 5.0
+    # 执行器存活判定。执行器是单线程派发：一次 get_trade_detail_data
+    # 慢查询会短暂停写心跳，判太紧会把活着的执行器误判死了（503）。
+    hb_max_age_sec: float = 12.0
 
     # 信箱请求
     request_timeout_sec: float = 15.0
@@ -129,7 +137,7 @@ class Settings:
     def from_env(cls, env_path: Path | None = None) -> "Settings":
         cfg = _apply_config_ini()
         settings = cls(
-            host=os.environ.get("QMT_BRIDGE_HOST", "0.0.0.0"),
+            host=os.environ.get("QMT_BRIDGE_HOST", "127.0.0.1"),
             port=int(os.environ.get("QMT_BRIDGE_PORT", "8000")),
             log_level=os.environ.get("QMT_BRIDGE_LOG_LEVEL", "info"),
             api_key=os.environ.get("QMT_BRIDGE_API_KEY", ""),
@@ -143,7 +151,7 @@ class Settings:
             )
             and _env_bool("QMT_BRIDGE_ORDER_WRITES_ENABLED", "true"),
             hb_max_age_sec=float(
-                os.environ.get("QMT_BRIDGE_EXECUTOR_HB_MAX_AGE_SEC", "5")
+                os.environ.get("QMT_BRIDGE_EXECUTOR_HB_MAX_AGE_SEC", "12")
             ),
             request_timeout_sec=float(
                 os.environ.get("QMT_BRIDGE_INTERNAL_REQUEST_TIMEOUT_SEC", "15")

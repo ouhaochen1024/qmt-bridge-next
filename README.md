@@ -37,18 +37,24 @@ Skill / 前端 ──HTTP/WS──▶ bridge（本仓库外部端）
 
 ## 统一配置（唯一配置源）
 
-`config/config.ini` —— 桥接 / 执行器 / Skills 三端共用，**不再使用 .env**：
+`config/config.ini` —— 桥接 / 执行器 / Skills 三端共用的**唯一配置源**：
 
 ```ini
-host      = 0.0.0.0                          ; 桥接 HTTP 监听
-port      = 8000
-api_key   = <随机生成的密钥>                  ; Skill 端 X-API-Key 须一致
-account_id = <资金账号>                       ; 执行器启动时 set_account
-base_dir  = D:\...\qmt-bridge-next\mailbox   ; 信箱目录（全部产物收敛于此）
+host               = 0.0.0.0                       ; 桥接 HTTP 监听
+port               = 8000
+api_key            = <随机生成的密钥>               ; Skill 端 X-API-Key 须一致
+account_id         = <资金账号>                     ; 执行器启动时 set_account
+credit_account_id  = <信用两融账号>                 ; 可选，双账户复盘用
+default_account    = stock                          ; 可选，stock / credit
+base_dir           = D:\...\qmt-bridge-next\mailbox ; 信箱目录（全部产物收敛于此）
 ```
 
 - 模板见 `config/config.example.ini`；`config.ini` 本体已被 gitignore，
   **真实账号与密钥不会进入 git 历史**。
+- **鉴权**：配置 `api_key` 后，`/api/trading/*` 与 `/account/*` 必须携带
+  `X-API-Key`（常量时间比较，缺失/错误返回 401）；行情、日历、健康检查
+  保持公开。`api_key` 为空时启动日志会打印告警。
+- **默认监听 `127.0.0.1`**：只有显式写 `host = 0.0.0.0` 才会暴露到局域网。
 - 查找顺序：`$QMT_CONFIG` → `<仓库根>\config\config.ini` → `cwd\config\`；
   单键可用环境变量 `QMT_BRIDGE_*` 临时覆盖。
 - 修改 `base_dir` / `account_id` 后需重跑盖戳脚本并重贴执行器（见下）。
@@ -74,7 +80,7 @@ curl http://127.0.0.1:8000/health
    绝对路径写进执行器常量 BASE_DIR / CONFIG_INI）；
 3. 把盖戳后的 `mailbox/qmt_mailbox_executor.py` 全文粘贴进 QMT 策略
    （运行周期 1 秒，运行设置里绑定交易账户），重启；
-4. 启动桥接：`python -m qmt_bridge`（日志自动写入 `mailbox/logs/`）；
+4. 启动桥接：`python -m qmt_bridge`（控制台 + `mailbox/logs/bridge-YYYYMMDD.log`）；
 5. 收紧信箱 ACL（一次性，必做）：
    `icacls "<base_dir>" /inheritance:r /grant:r "%USERNAME%:(OI)(CI)F"`
 
@@ -93,7 +99,7 @@ curl http://127.0.0.1:8000/health
 | 下单 / 撤单（两阶段） | POST `/api/trading/order` `/cancel` 等 | 信箱执行器 |
 | 资产 / 持仓 / 委托 / 成交查询 | GET `/api/trading/*` `/account/*` | 信箱执行器 |
 | 订单确认事件推送 | WS `/ws/order` `/ws/events` | 信箱执行器 |
-| 实时快照（含五档、名称） | GET `/api/market/full_tick` `/indices` | 公开行情源 |
+| 实时快照（含五档盘口、名称） | GET `/api/market/full_tick` `/indices` | 公开行情源 |
 | K 线（1m~1d，复权） | GET `/api/market/market_data_ex` `/history` | 公开行情源 |
 | 交易日历 | GET `/api/calendar/*` | 公开行情源 |
 | 板块 / 财务 / 公式 / ETF / 期权等 | — | 501 unsupported（见 limitations.md） |
@@ -104,9 +110,11 @@ curl http://127.0.0.1:8000/health
   - `confirmed`：order_id 已知；
   - `submitted`：`order_id=0` 是合法状态，凭 `tag` 追踪；
 - 确认结果经 WS `/ws/order` 推送 `order_confirmed` /
-  `order_confirm_timeout`；
+  `order_confirm_timeout`；Broker 会回放最近事件，但**不保证不丢**——
+  没收到确认时用 `GET /api/trading/orders` 对账，不要重新下单；
 - 收到 timeout 时**报告"已提交但未确认，请人工检查"**，
-  绝不重新下单（同一请求 id 在执行器侧幂等，人工重下才是重复执行风险）。
+  绝不重新下单（幂等缓存 `mailbox/processed.json` 跨执行器重启有效，
+  人工重下才是重复执行风险）。
 
 ## 开发与测试
 

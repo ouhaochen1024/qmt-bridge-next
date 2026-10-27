@@ -52,15 +52,18 @@
 
 - **完整可用**：qmt-bridge-setup / trading / order-ops / market-watch /
   event-calendar / portfolio-risk / daily-pnl / return-analysis /
-  execution-review（复盘部分）/ rebalance / smart-execution（预览部分）
+  execution-review（复盘部分）/ rebalance / kline-backfill /
+  smart-execution（预览部分；涨跌停校验因公开源无该字段而跳过）
+- **事件可用、行情推送不可用（4501）**：realtime-monitor
+  （`/ws/order`、`/ws/events` 可用；实时价请轮询 full_tick）
 - **仍降级（501 明确报错）**：convertible / etf / option / sector-theme /
-  fundamental-screen / financial-download / kline-backfill / hk-connect /
-  technical-signal / realtime-monitor / credit-margin
+  fundamental-screen / financial-download / hk-connect /
+  technical-signal / credit-margin
 
 ## 真实大 QMT 环境验收（需人工执行）
 
 1. 粘贴执行器到 QMT 策略，绑定账户，运行周期 1 秒；
-2. 控制台出现 `[qmt-exec] === init begin build=2026-10-27-mbx3 ===`；
+2. 控制台出现 `[qmt-exec] === init begin build=2026-10-27-mbx11 ===`（以执行器 BUILD 常量为准）；
 3. 启动桥接后 /health 变 healthy；
 4. `query_stock_asset` 返回真实资产；
 5. `order_stock` 返回 submitted 后，最终收到 order_confirmed 或

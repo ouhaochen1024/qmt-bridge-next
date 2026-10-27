@@ -27,28 +27,55 @@ def _unsupported_response():
     )
 
 
-# 原 qmt-bridge 的 xtdata 路由组（前缀 → 说明）
+# 整组完全未实现（该前缀下没有任何真实路由）
 UNSUPPORTED_GROUPS: dict[str, str] = {
-    "/api/market": "K线/快照/涨跌榜等行情数据 (xtdata)",
     "/api/tick": "分笔 tick (xtdata)",
     "/api/sector": "板块列表与成分 (xtdata)",
-    "/api/calendar": "交易日历 (xtdata)",
     "/api/financial": "财务数据 (xtdata)",
     "/api/instrument": "合约信息 (xtdata)",
     "/api/option": "期权链 (xtdata)",
     "/api/etf": "ETF 行情与筛选 (xtdata)",
     "/api/cb": "可转债行情 (xtdata)",
     "/api/futures": "期货行情 (xtdata)",
-    "/api/meta": "服务元信息 (xtdata)",
     "/api/download": "数据下载 (xtdata.downloader)",
     "/api/formula": "技术指标公式 (xtdata)",
     "/api/hk": "港股通 (xtdata)",
     "/api/tabular": "板块/表格数据 (xtdata)",
-    "/api/utility": "工具类 (xtdata)",
     "/api/bank": "银行资金 (xttrader 专有)",
     "/api/credit": "信用两融 (xttrader 专有；执行器仅支持 STOCK 账户基础交易)",
     "/api/fund": "基金申赎 (xttrader 专有)",
     "/api/smt": "融资融券标的 (xtdata)",
+}
+
+# 部分支持：同前缀下既有真实路由、也有 501 子路径
+PARTIAL_GROUPS: dict[str, dict] = {
+    "/api/market": {
+        "supported": ["/api/market/full_tick", "/api/market/indices",
+                      "/api/market/market_data_ex", "/api/market/market_data",
+                      "/api/full_tick (legacy)", "/api/history (legacy)"],
+        "unsupported": ["full_kline", "divid_factors", "fullspeed_orderbook",
+                        "local_data", "transactioncount"],
+    },
+    "/api/calendar": {
+        "supported": ["/api/calendar/trading_dates",
+                      "/api/calendar/is_trading_date",
+                      "/api/calendar/prev_trading_date",
+                      "/api/calendar/next_trading_date",
+                      "/api/calendar/trading_period"],
+        "unsupported": ["holidays", "trading_calendar",
+                        "trading_dates_count"],
+    },
+    "/api/utility": {
+        "supported": ["/api/utility/batch_stock_name"],
+        "unsupported": ["search", "stock_name", "code_to_market"],
+    },
+    "/api/meta": {
+        "supported": ["/api/meta/health"],
+        "unsupported": ["version", "markets", "period_list",
+                        "last_trade_date", "connection_status",
+                        "quote_server_status", "stock_list",
+                        "xtdata_version"],
+    },
 }
 
 # 旧版 legacy 短路径
@@ -76,7 +103,9 @@ _METHODS = ["GET", "POST", "DELETE", "PUT"]
 
 
 def _register() -> None:
-    for prefix, _desc in UNSUPPORTED_GROUPS.items():
+    # 整组 + 部分支持组都要注册 catch-all：同前缀下的未实现子路径返回 501，
+    # 而不是 404（真实路由已先于本模块注册，优先级更高）。
+    for prefix in list(UNSUPPORTED_GROUPS) + list(PARTIAL_GROUPS):
         sub = APIRouter(prefix=prefix)
 
         @sub.api_route("/{rest:path}", methods=_METHODS, include_in_schema=False)
@@ -107,19 +136,40 @@ _register()
 
 @router.get("/capabilities")
 async def capabilities():
-    """本构建真实支持的能力清单（Skill 层据此降级）。"""
+    """本构建真实支持的能力清单（Skill 层据此降级）。
+
+    `supported` 只列真实注册的路径；`unsupported_groups` 是整组未实现；
+    `partial_groups` 是同前缀下部分实现——不要因为前缀出现在
+    unsupported_groups 就误判整组不可用。
+    """
     return ok_response({
         "supported": {
             "trading": ["/api/trading/order", "/api/trading/order_async",
                         "/api/trading/cancel", "/api/trading/cancel_async",
                         "/api/trading/cancel_by_sysid",
+                        "/api/trading/cancel_by_sysid_async",
                         "/api/trading/batch_order", "/api/trading/batch_cancel"],
             "account": ["/api/trading/orders", "/api/trading/positions",
-                        "/api/trading/asset", "/api/trades",
+                        "/api/trading/asset", "/api/trading/trades",
                         "/api/trading/order/{order_id}",
+                        "/api/trading/position/{stock_code}",
+                        "/api/trading/account_status",
+                        "/api/trading/order_detail",
                         "/account/asset", "/account/positions",
-                        "/account/orders", "/account/trades"],
+                        "/account/orders", "/account/trades",
+                        "/account/status", "/account/binding"],
+            "market": ["/api/market/full_tick", "/api/market/indices",
+                       "/api/market/market_data_ex", "/api/market/market_data",
+                       "/api/full_tick", "/api/history"],
+            "calendar": ["/api/calendar/trading_dates",
+                         "/api/calendar/is_trading_date",
+                         "/api/calendar/prev_trading_date",
+                         "/api/calendar/next_trading_date",
+                         "/api/calendar/trading_period"],
+            "utility": ["/api/utility/batch_stock_name"],
+            "meta": ["/api/meta/health", "/health", "/executor/status"],
             "ws": ["/ws/order", "/ws/events"],
         },
         "unsupported_groups": sorted(UNSUPPORTED_GROUPS),
+        "partial_groups": PARTIAL_GROUPS,
     })

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from .deps import require_write_enabled
+from .deps import require_api_key, require_write_enabled
 from .trading import (
     _account_params,
     _mb_request,
@@ -12,7 +12,7 @@ from .trading import (
 )
 
 router = APIRouter(prefix="/account", tags=["account"],
-                   dependencies=[Depends(require_write_enabled)])
+                   dependencies=[Depends(require_api_key)])
 
 
 @router.get("/asset")
@@ -50,13 +50,13 @@ def account_trades(request: Request, account_id: str = "",
     ) or [])
 
 
-@router.post("/order")
+@router.post("/order", dependencies=[Depends(require_write_enabled)])
 def account_order(body: dict, request: Request):
     from .trading import place_order
     return place_order(body, request)
 
 
-@router.post("/cancel")
+@router.post("/cancel", dependencies=[Depends(require_write_enabled)])
 def account_cancel(body: dict, request: Request):
     from .trading import cancel_order
     return cancel_order(body, request)

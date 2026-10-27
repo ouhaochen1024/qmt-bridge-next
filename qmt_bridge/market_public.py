@@ -21,8 +21,8 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _HEADERS_EM = {"User-Agent": _UA, "Accept": "*/*",
                "Referer": "https://quote.eastmoney.com/"}
 _HEADERS_PLAIN = {"User-Agent": "Mozilla/5.0", "Accept": "*/*"}
-_TIMEOUT = 8
-_RETRY_DELAYS = (0.8, 2.0)
+_TIMEOUT = 4
+_RETRY_DELAYS = (0.5, 1.2)
 _CACHE: dict[str, tuple[float, Any]] = {}
 
 
@@ -139,6 +139,7 @@ def _fetch_em_quotes(codes: list[str]) -> dict[str, dict]:
                 "time": int(time.time() * 1000),
                 "lastPrice": last,
                 "lastClosed": pre,
+                "lastClose": pre,
                 "open": _num(row.get("f17")),
                 "high": _num(row.get("f15")),
                 "low": _num(row.get("f16")),
@@ -158,7 +159,8 @@ def _fetch_tencent_quotes(codes: list[str]) -> dict[str, dict]:
 
     代码必须是【前缀格式】sz000001 / sh600519（市场前缀 + 6 位代码）。
     行内字段（~ 分隔）：1 名称, 2 代码, 3 现价, 4 昨收, 5 今开, 6 成交量(手),
-    33 最高, 34 最低, 37 成交额(万)；9~28 为 卖五档→买五档 的 价/量 交错。
+    33 最高, 34 最低, 37 成交额(万)；9~18 为买一..买五的价/量交错，
+    19~28 为卖一..卖五的价/量交错。
     """
     tx_codes = []
     for code in codes:
@@ -187,15 +189,18 @@ def _fetch_tencent_quotes(codes: list[str]) -> dict[str, dict]:
         def px(i: int) -> float:
             return _num(parts[i]) if 0 < i < len(parts) else 0.0
 
-        # 卖一..卖五 = parts[17],[15],[13],[11],[9]；买一..买五 = parts[19],[21]...
-        ask_price = [px(17), px(15), px(13), px(11), px(9)]
-        ask_vol = [int(px(18)), int(px(16)), int(px(14)), int(px(12)), int(px(10))]
-        bid_price = [px(19), px(21), px(23), px(25), px(27)]
-        bid_vol = [int(px(20)), int(px(22)), int(px(24)), int(px(26)), int(px(28))]
+        # 腾讯字段：9~18 = 买一..买五（价/量交错），19~28 = 卖一..卖五。
+        # 买盘价由高到低（买一最高），卖盘价由低到高（卖一最低）。
+        bid_price = [px(9), px(11), px(13), px(15), px(17)]
+        bid_vol = [int(px(10)), int(px(12)), int(px(14)), int(px(16)), int(px(18))]
+        ask_price = [px(19), px(21), px(23), px(25), px(27)]
+        ask_vol = [int(px(20)), int(px(22)), int(px(24)), int(px(26)), int(px(28))]
         out[full] = {
             "time": int(time.time() * 1000),
             "lastPrice": _num(parts[3]),
             "lastClosed": _num(parts[4]),
+            # 兼容旧 qmt-bridge / xtdata 客户端的字段名（Skill 侧长期读 lastClose）。
+            "lastClose": _num(parts[4]),
             "open": _num(parts[5]),
             "high": _num(parts[33]) if len(parts) > 33 else 0.0,
             "low": _num(parts[34]) if len(parts) > 34 else 0.0,
