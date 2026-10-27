@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qmt-bridge-next"
+version = "3.0.0"
+description = "Big-QMT mailbox trading bridge — HTTP/WS API over the QMT built-in strategy mailbox protocol (no xtquant, no miniQMT)"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104",
+    "uvicorn[standard]>=0.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "requests", "websockets"]
+
+[project.scripts]
+qmt-bridge-next = "qmt_bridge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["qmt_bridge*"]

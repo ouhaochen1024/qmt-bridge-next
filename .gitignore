@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.env
+*.log
+mailbox/in/
+mailbox/out/
+mailbox/bad/
+mailbox/logs/
+mailbox/agent.hb
+mailbox/agent.stopped
+mailbox/hello.json
+bridge_real.log
+.env
+config/config.ini
