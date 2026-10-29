@@ -12,8 +12,10 @@
   get_trade_detail_data）——实盘验收通过；
 - **行情快照 / K 线 / 交易日历 / 股票名称**由桥接的**公开行情源**直接获取
   （腾讯主源 + 东方财富兜底），不经过 QMT；
-- 板块/财务/公式等其余能力显式返回 501 unsupported（见
-  `docs/limitations.md`），不假装成功。
+- **板块 / 涨跌家数 / 分笔 / 北向成交额**由同一套公开行情源（腾讯板块排行 +
+  东方财富涨跌分布）提供；北向净买入因交易所 2024-08 停止披露而显式为
+  `null`；财务/公式/期权等其余能力仍显式返回 501 unsupported
+  （见 `docs/limitations.md`），不假装成功。
 
 ## 架构
 
@@ -102,7 +104,11 @@ curl http://127.0.0.1:8000/health
 | 实时快照（含五档盘口、名称） | GET `/api/market/full_tick` `/indices` | 公开行情源 |
 | K 线（1m~1d，复权） | GET `/api/market/market_data_ex` `/history` | 公开行情源 |
 | 交易日历 | GET `/api/calendar/*` | 公开行情源 |
-| 板块 / 财务 / 公式 / ETF / 期权等 | — | 501 unsupported（见 limitations.md） |
+| 涨跌家数 / 涨停跌停 / 两市成交额 | GET `/api/market/breadth` | 公开行情源 |
+| 板块列表 / 排行 / 成分（行业·概念·地域） | GET `/api/sector/*` | 公开行情源 |
+| 分笔成交 | GET `/api/tick/details` | 公开行情源 |
+| 北向资金 | GET `/api/market/northbound` | 净额自 2024-08 起停止披露，仅 T+1 成交总额 |
+| 财务 / 公式 / ETF / 期权等 | — | 501 unsupported（见 limitations.md） |
 
 ## 下单两阶段语义
 
@@ -119,7 +125,7 @@ curl http://127.0.0.1:8000/health
 ## 开发与测试
 
 ```bash
-python -m pytest tests/ -q     # 14 项：信箱回路 + 桥接 HTTP/WS 集成
+python -m pytest tests/ -q     # 29 项：信箱回路 + HTTP/WS 集成 + 公开源解析
 python devtools/probe_minimal.py --mailbox ./smoke/mailbox   # 最小协议验证
 python devtools/mock_executor.py   # 无 QMT 环境的执行器模拟器
 ```

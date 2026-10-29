@@ -126,7 +126,7 @@ def test_cancel_workflow(bridge):
 def test_unsupported_market_routes_501(bridge):
     for path in ("/api/market/kline", "/api/tick/full_tick",
                  "/api/financial/data", "/api/market/local_data",
-                 "/api/sector/list", "/api/formula/macd"):
+                 "/api/sector/create", "/api/formula/macd"):
         resp = bridge.get(path)
         assert resp.status_code == 501, path
         assert "unsupported" in resp.json()["message"]
@@ -144,6 +144,13 @@ def test_capabilities_endpoint(bridge):
     assert "/api/market" not in caps["unsupported_groups"]
     assert "/api/market" in caps["partial_groups"]
     assert "/api/market/full_tick" in caps["partial_groups"]["/api/market"]["supported"]
+    # 复盘三件套（宽度/板块/北向）已落地，不能再标 501 不可用
+    assert "/api/sector" not in caps["unsupported_groups"]
+    assert "/api/sector" in caps["partial_groups"]
+    assert "/api/sector/rank" in caps["partial_groups"]["/api/sector"]["supported"]
+    assert "/api/tick" not in caps["unsupported_groups"]
+    assert "/api/market/breadth" in caps["supported"]["breadth"]
+    assert "/api/tick/details" in caps["supported"]["tick"]
 
 
 def test_capabilities_paths_are_registered(bridge):
@@ -216,3 +223,64 @@ def test_read_endpoints_survive_writes_disabled(mailbox, runner):
 
 def loads_safe(text):
     return json.loads(text)
+
+def test_market_flow_routes_pass_through(bridge, monkeypatch):
+    """新路由（宽度/北向/板块/分笔）必须把 data 原样透出，且不吞异常。"""
+    from qmt_bridge import market_flow as mf
+
+    monkeypatch.setattr(mf, "get_breadth", lambda: {"up": 757, "down": 4563})
+    monkeypatch.setattr(mf, "get_northbound",
+                        lambda: {"available": False, "net_inflow_yi": None})
+    monkeypatch.setattr(mf, "get_ticks",
+                        lambda code, n: {"stock": code, "count": 0, "ticks": []})
+    monkeypatch.setattr(mf, "get_sector_rank",
+                        lambda *a, **kw: {"items": [{"name": "煤炭"}]})
+
+    assert bridge.get("/api/market/breadth").json()["data"]["up"] == 757
+    nb = bridge.get("/api/market/northbound").json()["data"]
+    assert nb["available"] is False and nb["net_inflow_yi"] is None
+    assert bridge.get("/api/tick/details",
+                      params={"stock": "600519.SH"}).json()["data"]["count"] == 0
+    rank = bridge.get("/api/sector/rank").json()["data"]
+    assert rank["items"][0]["name"] == "煤炭"
+
+
+def test_unknown_sector_returns_404_not_502(bridge, monkeypatch):
+    """板块名无效是客户端错误（404），不能伪装成上游 502。"""
+    from qmt_bridge import market_flow as mf
+
+    monkeypatch.setattr(mf, "get_boards", lambda bt: [])
+    resp = bridge.get("/api/sector/stocks", params={"sector": "沪深A股"})
+    assert resp.status_code == 404
+    assert "unknown sector" in resp.json()["detail"]
+
+
+def test_market_flow_routes_pass_through(bridge, monkeypatch):
+    """新路由（宽度/北向/板块/分笔）必须把 data 原样透出，且不吞异常。"""
+    from qmt_bridge import market_flow as mf
+
+    monkeypatch.setattr(mf, "get_breadth", lambda: {"up": 757, "down": 4563})
+    monkeypatch.setattr(mf, "get_northbound",
+                        lambda: {"available": False, "net_inflow_yi": None})
+    monkeypatch.setattr(mf, "get_ticks",
+                        lambda code, n: {"stock": code, "count": 0, "ticks": []})
+    monkeypatch.setattr(mf, "get_sector_rank",
+                        lambda *a, **kw: {"items": [{"name": "煤炭"}]})
+
+    assert bridge.get("/api/market/breadth").json()["data"]["up"] == 757
+    nb = bridge.get("/api/market/northbound").json()["data"]
+    assert nb["available"] is False and nb["net_inflow_yi"] is None
+    assert bridge.get("/api/tick/details",
+                      params={"stock": "600519.SH"}).json()["data"]["count"] == 0
+    rank = bridge.get("/api/sector/rank").json()["data"]
+    assert rank["items"][0]["name"] == "煤炭"
+
+
+def test_unknown_sector_returns_404_not_502(bridge, monkeypatch):
+    """板块名无效是客户端错误（404），不能伪装成上游 502。"""
+    from qmt_bridge import market_flow as mf
+
+    monkeypatch.setattr(mf, "get_boards", lambda bt: [])
+    resp = bridge.get("/api/sector/stocks", params={"sector": "沪深A股"})
+    assert resp.status_code == 404
+    assert "unknown sector" in resp.json()["detail"]

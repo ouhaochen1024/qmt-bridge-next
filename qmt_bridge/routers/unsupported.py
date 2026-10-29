@@ -29,8 +29,6 @@ def _unsupported_response():
 
 # 整组完全未实现（该前缀下没有任何真实路由）
 UNSUPPORTED_GROUPS: dict[str, str] = {
-    "/api/tick": "分笔 tick (xtdata)",
-    "/api/sector": "板块列表与成分 (xtdata)",
     "/api/financial": "财务数据 (xtdata)",
     "/api/instrument": "合约信息 (xtdata)",
     "/api/option": "期权链 (xtdata)",
@@ -52,9 +50,20 @@ PARTIAL_GROUPS: dict[str, dict] = {
     "/api/market": {
         "supported": ["/api/market/full_tick", "/api/market/indices",
                       "/api/market/market_data_ex", "/api/market/market_data",
+                      "/api/market/breadth", "/api/market/northbound",
                       "/api/full_tick (legacy)", "/api/history (legacy)"],
         "unsupported": ["full_kline", "divid_factors", "fullspeed_orderbook",
                         "local_data", "transactioncount"],
+    },
+    "/api/sector": {
+        "supported": ["/api/sector/list", "/api/sector/rank",
+                      "/api/sector/stocks", "/api/sector_stocks (legacy)"],
+        "unsupported": ["info", "create", "create_folder", "add_stocks",
+                        "remove_stocks", "remove", "reset"],
+    },
+    "/api/tick": {
+        "supported": ["/api/tick/details"],
+        "unsupported": ["history", "full", "l2"],
     },
     "/api/calendar": {
         "supported": ["/api/calendar/trading_dates",
@@ -161,6 +170,10 @@ async def capabilities():
             "market": ["/api/market/full_tick", "/api/market/indices",
                        "/api/market/market_data_ex", "/api/market/market_data",
                        "/api/full_tick", "/api/history"],
+            "breadth": ["/api/market/breadth", "/api/market/northbound"],
+            "sector": ["/api/sector/list", "/api/sector/rank",
+                       "/api/sector/stocks", "/api/sector_stocks"],
+            "tick": ["/api/tick/details"],
             "calendar": ["/api/calendar/trading_dates",
                          "/api/calendar/is_trading_date",
                          "/api/calendar/prev_trading_date",

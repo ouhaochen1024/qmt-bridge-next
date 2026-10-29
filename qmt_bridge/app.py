@@ -54,18 +54,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="QMT Bridge Next",
         description=(
             "Big-QMT mailbox trading bridge (no xtquant, no miniQMT). "
-            "Market-data groups return 501: " + UNSUPPORTED_MSG
+            "Trading/account via mailbox executor; quotes/breadth/sector via "
+            "public sources. Uncovered groups return 501: " + UNSUPPORTED_MSG
         ),
-        version="3.0.0",
+        version="3.1.0",
         lifespan=_lifespan,
     )
     app.state.settings = settings
 
-    from .routers import account, health, market_data, trading, unsupported
+    from .routers import (account, health, market_data, market_flow, trading,
+                          unsupported)
     from .ws import events as ws_events
 
     app.include_router(health.router)
     app.include_router(market_data.router)   # 公开行情源：须先于 501 存根注册
+    app.include_router(market_flow.router)   # 宽度/板块/北向/分笔：同样先于存根
     app.include_router(trading.router)
     app.include_router(account.router)
     app.include_router(unsupported.router)
